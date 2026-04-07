@@ -3,8 +3,8 @@
 Implemented behaviors:
 - Bi-directional webhook ingestion (`wix` and `hubspot`).
 - Signature verification on inbound webhook payloads.
-- Async queue boundary before processing.
-- Contact link table abstraction (`contact_links`) in the in-memory store.
+- Durable queue boundary before processing (API enqueue, worker consume).
+- Contact link table abstraction (`contact_links`) in the file-backed state store.
 - Event dedupe window with source+event key fallback.
 - Payload hash skip for idempotent no-op updates.
 - Conflict policy:
@@ -15,5 +15,5 @@ Implemented behaviors:
 - Audit log emission for create/update/skip/conflict outcomes.
 
 Notes:
-- Queue retries/DLQ are completed in Phase 5.
-- Persistent DB-backed repositories replace in-memory store in production deployment.
+- Worker process owns retry scheduling and dead-letter transitions.
+- Persistent DB-backed repositories replace file-backed store in production deployment.

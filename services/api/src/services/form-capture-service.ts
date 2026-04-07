@@ -23,6 +23,19 @@ export class FormCaptureService {
     }
 
     const matches = this.store.findContactByEmail('hubspot', event.tenantId, event.email);
+    if (matches.length > 1) {
+      this.store.addFormEvent({
+        tenantId: event.tenantId,
+        wixFormId: event.wixFormId,
+        submissionId: event.submissionId,
+        emailHash: hashEmail(event.email),
+        attributionJson: this.extractAttribution(event),
+        processedAt: new Date().toISOString(),
+        result: 'failed'
+      });
+      return { status: 'ignored', correlationId };
+    }
+
     const targetContact = matches[0];
     const now = new Date().toISOString();
 

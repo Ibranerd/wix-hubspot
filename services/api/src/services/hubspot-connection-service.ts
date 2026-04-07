@@ -77,7 +77,7 @@ export class HubSpotConnectionService {
   async refreshIfNeeded(tenantId: string): Promise<void> {
     const tokenRecord = this.store.getTokens(tenantId);
     if (!tokenRecord) {
-      throw new Error('No token record found for tenant');
+      return;
     }
 
     const expiresAt = new Date(tokenRecord.expiresAt).getTime();

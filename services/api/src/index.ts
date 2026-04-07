@@ -1,5 +1,4 @@
 import { createServer } from 'node:http';
-import { MockHubSpotOAuthClient } from './integrations/hubspot-oauth-client.js';
 import { InMemoryStore } from './storage/in-memory-store.js';
 import { HubSpotConnectionService } from './services/hubspot-connection-service.js';
 import { readJson } from './http/json.js';
@@ -7,29 +6,35 @@ import { MappingService } from './services/mapping-service.js';
 import type { MappingRowInput } from './types/mappings.js';
 import { readRawBody } from './http/raw.js';
 import { verifySimpleSignature } from './security/signature.js';
-import { SyncService } from './services/sync-service.js';
-import { InMemoryJobQueue } from './services/job-queue.js';
-import type { ContactEvent } from './types/sync.js';
-import { FormCaptureService } from './services/form-capture-service.js';
+import type { ContactEvent, ContactRecord, SyncSource } from './types/sync.js';
 import type { WixFormEvent } from './types/forms.js';
 import { logError, logInfo } from './utils/logger.js';
-import type { QueueJob } from './services/job-queue.js';
+import { buildHubSpotOAuthClient } from './integrations/hubspot-oauth-client.js';
+import { FileJobQueue } from './services/job-queue.js';
 
 const port = Number(process.env.API_PORT || 8080);
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
 const redirectUri = process.env.HUBSPOT_REDIRECT_URI || `${appBaseUrl}/api/hubspot/oauth/callback`;
 const hubspotClientId = process.env.HUBSPOT_CLIENT_ID || 'local-dev-client-id';
+const hubspotClientSecret = process.env.HUBSPOT_CLIENT_SECRET || 'local-dev-client-secret';
 const encryptionMasterKey = process.env.ENCRYPTION_MASTER_KEY || 'local-dev-master-key';
 const wixWebhookSecret = process.env.WIX_WEBHOOK_SECRET || 'local-wix-secret';
 const hubspotWebhookSecret = process.env.HUBSPOT_WEBHOOK_SECRET || 'local-hubspot-secret';
 const adminToken = process.env.ADMIN_API_TOKEN || 'local-admin-token';
+const dataDir = process.env.DATA_DIR || '.data';
+const useMockHubspotOAuth = process.env.HUBSPOT_USE_MOCK_OAUTH !== 'false';
 
-const store = new InMemoryStore();
-const oauthClient = new MockHubSpotOAuthClient();
+const store = new InMemoryStore(dataDir);
+const oauthClient = buildHubSpotOAuthClient(
+  {
+    clientId: hubspotClientId,
+    clientSecret: hubspotClientSecret,
+    redirectUri
+  },
+  useMockHubspotOAuth
+);
 const mappingService = new MappingService(store);
-const syncService = new SyncService(store);
-const formCaptureService = new FormCaptureService(store);
-const queue = new InMemoryJobQueue();
+const queue = new FileJobQueue(dataDir);
 const connectionService = new HubSpotConnectionService(store, oauthClient, {
   appBaseUrl,
   redirectUri,
@@ -42,24 +47,19 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url || '/', appBaseUrl);
 
     if (req.method === 'GET' && url.pathname === '/health') {
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ ok: true, service: 'api' }));
+      json(res, 200, { ok: true, service: 'api' });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/hubspot/connect/start') {
       const body = await readJson<{ tenantId: string }>(req);
       if (!body.tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
       const payload = connectionService.startConnection(body.tenantId);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(payload));
+      json(res, 200, payload);
       return;
     }
 
@@ -67,17 +67,14 @@ const server = createServer(async (req, res) => {
       const code = url.searchParams.get('code') || '';
       const state = url.searchParams.get('state') || '';
       const result = await connectionService.handleCallback(code, state);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(result));
+      json(res, 200, result);
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/hubspot/disconnect') {
       const body = await readJson<{ tenantId: string }>(req);
       if (!body.tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
@@ -90,86 +87,107 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/hubspot/status') {
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
       await connectionService.refreshIfNeeded(tenantId);
       const status = connectionService.getConnectionStatus(tenantId);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(status));
+      json(res, 200, status);
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/mappings/catalog') {
       const catalog = mappingService.getCatalog();
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(catalog));
+      json(res, 200, catalog);
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/mappings') {
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
       const mappingSet = mappingService.getActiveMappingSet(tenantId);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ mappingSet }));
+      json(res, 200, { mappingSet });
       return;
     }
 
     if (req.method === 'PUT' && url.pathname === '/api/mappings') {
       const body = await readJson<{ tenantId: string; rows: MappingRowInput[] }>(req);
       if (!body.tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
       const mappingSet = mappingService.saveMappingSet(body.tenantId, body.rows || []);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ mappingSet }));
+      json(res, 200, { mappingSet });
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/sync/status') {
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
       const status = store.getSyncStatus(tenantId);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(status));
+      json(res, 200, status);
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/sync/logs') {
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        json(res, 400, { error: 'tenantId is required' });
         return;
       }
 
       const cursorValue = url.searchParams.get('cursor');
       const cursor = cursorValue ? Number(cursorValue) : undefined;
       const payload = store.getAuditLogs(tenantId, cursor);
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(payload));
+      json(res, 200, payload);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/sync/backfill/start') {
+      const body = await readJson<{ tenantId: string; source?: SyncSource; limit?: number }>(req);
+      if (!body.tenantId) {
+        json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+
+      const source: SyncSource = body.source || 'wix';
+      const contacts = store.listContacts(source, body.tenantId);
+      const limit = body.limit && body.limit > 0 ? body.limit : contacts.length;
+      const selected = contacts.slice(0, limit);
+
+      for (const contact of selected) {
+        enqueueBackfillJob(queue, source, contact);
+      }
+
+      json(res, 202, {
+        queued: true,
+        source,
+        queuedJobs: selected.length
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/forms/events') {
+      const tenantId = url.searchParams.get('tenantId') || '';
+      if (!tenantId) {
+        json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+
+      const cursorValue = url.searchParams.get('cursor');
+      const cursor = cursorValue ? Number(cursorValue) : undefined;
+      const payload = store.getFormEvents(tenantId, cursor);
+      json(res, 200, payload);
       return;
     }
 
@@ -177,22 +195,13 @@ const server = createServer(async (req, res) => {
       const raw = await readRawBody(req);
       const signature = req.headers['x-signature']?.toString();
       if (!verifySimpleSignature(raw, signature, wixWebhookSecret)) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: 'invalid_signature' }));
+        json(res, 401, { error: 'invalid_signature' });
         return;
       }
 
       const body = JSON.parse(raw) as Omit<ContactEvent, 'source'>;
-      const job = queue.enqueue('wix_contact_upsert_to_hubspot', body, async () => {
-        syncService.processContactEvent({ ...body, source: 'wix' });
-      }, {
-        onRetry: (retryJob) => store.addRetry(retryJob as QueueJob<unknown>),
-        onDeadLetter: (dlqJob) => store.addDeadLetterJob(dlqJob as QueueJob<unknown>)
-      });
-
-      res.statusCode = 202;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ queued: true, jobId: job.id }));
+      const job = queue.enqueue('wix_contact_upsert_to_hubspot', body);
+      json(res, 202, { queued: true, jobId: job.id });
       return;
     }
 
@@ -200,22 +209,13 @@ const server = createServer(async (req, res) => {
       const raw = await readRawBody(req);
       const signature = req.headers['x-signature']?.toString();
       if (!verifySimpleSignature(raw, signature, hubspotWebhookSecret)) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: 'invalid_signature' }));
+        json(res, 401, { error: 'invalid_signature' });
         return;
       }
 
       const body = JSON.parse(raw) as Omit<ContactEvent, 'source'>;
-      const job = queue.enqueue('hubspot_contact_upsert_to_wix', body, async () => {
-        syncService.processContactEvent({ ...body, source: 'hubspot' });
-      }, {
-        onRetry: (retryJob) => store.addRetry(retryJob as QueueJob<unknown>),
-        onDeadLetter: (dlqJob) => store.addDeadLetterJob(dlqJob as QueueJob<unknown>)
-      });
-
-      res.statusCode = 202;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ queued: true, jobId: job.id }));
+      const job = queue.enqueue('hubspot_contact_upsert_to_wix', body);
+      json(res, 202, { queued: true, jobId: job.id });
       return;
     }
 
@@ -223,74 +223,51 @@ const server = createServer(async (req, res) => {
       const raw = await readRawBody(req);
       const signature = req.headers['x-signature']?.toString();
       if (!verifySimpleSignature(raw, signature, wixWebhookSecret)) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: 'invalid_signature' }));
+        json(res, 401, { error: 'invalid_signature' });
         return;
       }
 
       const body = JSON.parse(raw) as WixFormEvent;
-      const job = queue.enqueue('wix_form_submission_to_hubspot', body, async () => {
-        formCaptureService.process(body);
-      }, {
-        onRetry: (retryJob) => store.addRetry(retryJob as QueueJob<unknown>),
-        onDeadLetter: (dlqJob) => store.addDeadLetterJob(dlqJob as QueueJob<unknown>)
-      });
-
-      res.statusCode = 202;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ queued: true, jobId: job.id }));
+      const job = queue.enqueue('wix_form_submission_to_hubspot', body);
+      json(res, 202, { queued: true, jobId: job.id });
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/metrics') {
-      const metrics = store.getMetrics();
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(metrics));
+      const storeMetrics = store.getMetrics();
+      const queueMetrics = queue.getMetrics();
+      json(res, 200, {
+        ...storeMetrics,
+        ...queueMetrics
+      });
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/admin/dlq') {
       if (req.headers['x-admin-token']?.toString() !== adminToken) {
-        res.statusCode = 403;
-        res.end(JSON.stringify({ error: 'forbidden' }));
+        json(res, 403, { error: 'forbidden' });
         return;
       }
 
-      const jobs = store.getDeadLetterJobs();
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ jobs }));
+      const jobs = queue.listDeadLetter();
+      json(res, 200, { jobs });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/admin/dlq/replay') {
       if (req.headers['x-admin-token']?.toString() !== adminToken) {
-        res.statusCode = 403;
-        res.end(JSON.stringify({ error: 'forbidden' }));
+        json(res, 403, { error: 'forbidden' });
         return;
       }
 
       const body = await readJson<{ jobId: string }>(req);
-      const job = store.removeDeadLetterJob(body.jobId);
-      if (!job) {
-        res.statusCode = 404;
-        res.end(JSON.stringify({ error: 'job_not_found' }));
+      const replayed = queue.replayDeadLetter(body.jobId);
+      if (!replayed) {
+        json(res, 404, { error: 'job_not_found' });
         return;
       }
 
-      if (job.type === 'wix_contact_upsert_to_hubspot') {
-        const payload = job.payload as Omit<ContactEvent, 'source'>;
-        syncService.processContactEvent({ ...payload, source: 'wix' });
-      } else if (job.type === 'hubspot_contact_upsert_to_wix') {
-        const payload = job.payload as Omit<ContactEvent, 'source'>;
-        syncService.processContactEvent({ ...payload, source: 'hubspot' });
-      } else if (job.type === 'wix_form_submission_to_hubspot') {
-        formCaptureService.process(job.payload as WixFormEvent);
-      }
-
-      res.statusCode = 200;
-      res.end(JSON.stringify({ replayed: true, jobId: job.id }));
+      json(res, 200, { replayed: true, jobId: replayed.id });
       return;
     }
 
@@ -302,13 +279,54 @@ const server = createServer(async (req, res) => {
       method: req.method,
       error: error instanceof Error ? error.message : 'unknown_error'
     });
-    res.statusCode = 500;
-    res.setHeader('content-type', 'application/json');
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.end(JSON.stringify({ error: message }));
+
+    json(res, 500, {
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
 server.listen(port, () => {
-  logInfo('api_started', { port });
+  logInfo('api_started', { port, dataDir, useMockHubspotOAuth });
 });
+
+function json(res: import('node:http').ServerResponse, statusCode: number, payload: unknown): void {
+  res.statusCode = statusCode;
+  res.setHeader('content-type', 'application/json');
+  res.end(JSON.stringify(payload));
+}
+
+function enqueueBackfillJob(queue: FileJobQueue, source: SyncSource, contact: ContactRecord): void {
+  const canonicalPayload = {
+    email: stringOrUndefined(contact.fields.email),
+    firstName: stringOrUndefined(contact.fields.firstName),
+    lastName: stringOrUndefined(contact.fields.lastName),
+    phone: stringOrUndefined(contact.fields.phone),
+    createdAt: stringOrUndefined(contact.fields.createdAt),
+    marketingOptIn: booleanOrUndefined(contact.fields.marketingOptIn),
+    sourceUpdatedAt: contact.updatedAt
+  };
+
+  const payload: Omit<ContactEvent, 'source'> = {
+    tenantId: contact.tenantId,
+    contactId: contact.id,
+    eventId: `backfill_${source}_${contact.id}_${Date.now()}`,
+    occurredAt: new Date().toISOString(),
+    payload: canonicalPayload
+  };
+
+  if (source === 'wix') {
+    queue.enqueue('wix_contact_upsert_to_hubspot', payload);
+    return;
+  }
+
+  queue.enqueue('hubspot_contact_upsert_to_wix', payload);
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function booleanOrUndefined(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}

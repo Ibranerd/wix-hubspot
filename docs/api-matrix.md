@@ -9,7 +9,7 @@
 - `GET /api/mappings?tenantId=...` -> returns active mapping set for tenant.
 - `PUT /api/mappings` -> validates and activates new mapping set version.
 
-## Planned Webhooks (next phases)
+## Webhooks
 - `POST /webhooks/wix/contacts`
 - `POST /webhooks/hubspot/contacts`
 - `POST /webhooks/wix/forms`
@@ -17,6 +17,8 @@
 ## Sync APIs
 - `GET /api/sync/status?tenantId=...` -> returns connection + mapping + audit counters.
 - `GET /api/sync/logs?tenantId=...&cursor=...` -> paginated sync audit logs.
+- `POST /api/sync/backfill/start` -> enqueues resumable contact backfill jobs from Wix or HubSpot side.
+- `GET /api/forms/events?tenantId=...&cursor=...` -> paginated stored form ingestion metadata.
 - `GET /api/metrics` -> operational counters.
 - `GET /api/admin/dlq` -> view dead-letter jobs (admin token required).
 - `POST /api/admin/dlq/replay` -> replay dead-letter jobs (admin token required).

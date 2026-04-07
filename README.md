@@ -12,5 +12,6 @@ Production-oriented standalone integration app scaffolded in phases.
 
 ## Running locally
 1. Copy `.env.example` into service-specific `.env` files.
-2. Start API and worker once dependencies are installed.
-3. Use `npm run test` for baseline smoke checks.
+2. Start API and worker services (`services/api` and `services/worker`).
+3. Ensure both processes share the same `DATA_DIR` so API-enqueued jobs are visible to worker consumers.
+4. Use `npm run test` for baseline smoke checks.

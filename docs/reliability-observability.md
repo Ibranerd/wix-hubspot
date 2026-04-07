@@ -1,7 +1,8 @@
 # Reliability + Observability (Phase 5)
 
 Implemented:
-- Queue retries with backoff and max attempts.
+- Durable file-backed queue used by API and worker.
+- Worker-owned retries with backoff and max attempts.
 - Dead-letter capture when retries are exhausted.
 - Internal replay endpoint for DLQ jobs.
 - Metrics endpoint for queue/audit/form counters.

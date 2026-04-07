@@ -10,13 +10,17 @@
 - `HUBSPOT_CLIENT_ID`
 - `HUBSPOT_CLIENT_SECRET`
 - `HUBSPOT_REDIRECT_URI`
+- `HUBSPOT_USE_MOCK_OAUTH`
 - `ENCRYPTION_MASTER_KEY`
 - `WIX_WEBHOOK_SECRET`
 - `HUBSPOT_WEBHOOK_SECRET`
 - `ADMIN_API_TOKEN`
+- `DATA_DIR`
+- `WORKER_POLL_MS`
+- `WORKER_BATCH_SIZE`
 
 ## Recommended production substitutions
-- Replace in-memory store with PostgreSQL repositories.
-- Replace in-memory queue with Redis/BullMQ or SQS.
+- Replace file-backed store with PostgreSQL repositories.
+- Replace file-backed queue with Redis/BullMQ or SQS.
 - Add OpenTelemetry + Sentry exporters.
 - Enforce tenant auth middleware from Wix context.
