@@ -1,0 +1,16 @@
+{
+  "name": "wix-hubspot-integration",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "echo 'Build pipeline placeholder'",
+    "lint": "echo 'Lint placeholder'",
+    "test": "node scripts/smoke-check.js",
+    "phase:status": "node scripts/phase-status.js"
+  }
+}
