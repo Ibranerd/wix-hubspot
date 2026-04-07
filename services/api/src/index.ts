@@ -3,6 +3,8 @@ import { MockHubSpotOAuthClient } from './integrations/hubspot-oauth-client.js';
 import { InMemoryStore } from './storage/in-memory-store.js';
 import { HubSpotConnectionService } from './services/hubspot-connection-service.js';
 import { readJson } from './http/json.js';
+import { MappingService } from './services/mapping-service.js';
+import type { MappingRowInput } from './types/mappings.js';
 
 const port = Number(process.env.API_PORT || 8080);
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
@@ -12,6 +14,7 @@ const encryptionMasterKey = process.env.ENCRYPTION_MASTER_KEY || 'local-dev-mast
 
 const store = new InMemoryStore();
 const oauthClient = new MockHubSpotOAuthClient();
+const mappingService = new MappingService(store);
 const connectionService = new HubSpotConnectionService(store, oauthClient, {
   appBaseUrl,
   redirectUri,
@@ -82,6 +85,44 @@ const server = createServer(async (req, res) => {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify(status));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/mappings/catalog') {
+      const catalog = mappingService.getCatalog();
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(catalog));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/mappings') {
+      const tenantId = url.searchParams.get('tenantId') || '';
+      if (!tenantId) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        return;
+      }
+
+      const mappingSet = mappingService.getActiveMappingSet(tenantId);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ mappingSet }));
+      return;
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/api/mappings') {
+      const body = await readJson<{ tenantId: string; rows: MappingRowInput[] }>(req);
+      if (!body.tenantId) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: 'tenantId is required' }));
+        return;
+      }
+
+      const mappingSet = mappingService.saveMappingSet(body.tenantId, body.rows || []);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ mappingSet }));
       return;
     }
 
