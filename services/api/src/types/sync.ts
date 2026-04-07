@@ -57,7 +57,7 @@ export interface ContactRecord {
   id: string;
   tenantId: string;
   updatedAt: string;
-  fields: CanonicalContact & Record<string, unknown>;
+  fields: Record<string, unknown>;
 }
 
 export interface MappingSnapshot {

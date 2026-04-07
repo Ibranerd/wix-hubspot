@@ -15,3 +15,13 @@ Production-oriented standalone integration app scaffolded in phases.
 2. Start API and worker services (`services/api` and `services/worker`).
 3. Ensure both processes share the same `DATA_DIR` so API-enqueued jobs are visible to worker consumers.
 4. Use `npm run test` for baseline smoke checks.
+
+## Build and typecheck
+- `npm run build`
+- `npm run typecheck`
+
+## Runtime backend switches
+- `STORE_BACKEND=file|postgres`
+- `QUEUE_BACKEND=file|bullmq`
+- `POSTGRES_URL=...` (required when `STORE_BACKEND=postgres`)
+- `REDIS_URL=...` (required when `QUEUE_BACKEND=bullmq`)

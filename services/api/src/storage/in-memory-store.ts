@@ -4,7 +4,7 @@ import type { EncryptedTokenRecord, HubSpotConnection } from '../types/models.js
 import type { FieldMappingSet } from '../types/mappings.js';
 import type { ContactLink, ContactRecord, SyncAuditLog, SyncSource } from '../types/sync.js';
 import type { StoredFormEvent } from '../types/forms.js';
-import type { QueueJob } from '../services/job-queue.js';
+import type { QueueJob } from '../services/queue-contract.js';
 import type { RuntimeStore } from './store-contract.js';
 
 interface PersistedState {

@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { InMemoryStore } from '../storage/in-memory-store.js';
+import type { RuntimeStore } from '../storage/store-contract.js';
 import type { WixFormEvent } from '../types/forms.js';
 
 export class FormCaptureService {
-  constructor(private readonly store: InMemoryStore) {}
+  constructor(private readonly store: RuntimeStore) {}
 
   process(event: WixFormEvent): { status: 'processed' | 'ignored'; correlationId: string } {
     const correlationId = randomUUID();
@@ -61,8 +61,8 @@ export class FormCaptureService {
     const nextFields = {
       ...(targetContact?.fields || {}),
       email: event.email,
-      firstName: event.firstName || targetContact?.fields.firstName,
-      lastName: event.lastName || targetContact?.fields.lastName,
+      firstName: event.firstName || asString(targetContact?.fields.firstName),
+      lastName: event.lastName || asString(targetContact?.fields.lastName),
       ...latestTouch
     } as Record<string, unknown>;
 
@@ -110,4 +110,8 @@ export class FormCaptureService {
 
 function hashEmail(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }

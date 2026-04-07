@@ -8,9 +8,15 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "echo 'Build pipeline placeholder'",
+    "build": "tsc -b",
+    "build:clean": "tsc -b --clean",
     "lint": "echo 'Lint placeholder'",
     "test": "node scripts/smoke-check.js",
-    "phase:status": "node scripts/phase-status.js"
+    "phase:status": "node scripts/phase-status.js",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^5.9.0"
   }
 }

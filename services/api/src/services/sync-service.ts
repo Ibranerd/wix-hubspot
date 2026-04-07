@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { InMemoryStore } from '../storage/in-memory-store.js';
+import type { RuntimeStore } from '../storage/store-contract.js';
 import type { MappingRow } from '../types/mappings.js';
 import type {
   CanonicalContact,
@@ -14,7 +14,7 @@ import type {
 const DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 
 export class SyncService {
-  constructor(private readonly store: InMemoryStore) {}
+  constructor(private readonly store: RuntimeStore) {}
 
   processContactEvent(event: ContactEvent): SyncResult {
     const correlationId = event.correlationId || randomUUID();
@@ -124,7 +124,7 @@ export class SyncService {
       id: event.contactId,
       tenantId: event.tenantId,
       updatedAt: event.payload.sourceUpdatedAt || event.occurredAt,
-      fields: event.payload
+      fields: { ...event.payload }
     };
 
     this.store.saveContact(event.source, sourceContact);
@@ -138,7 +138,7 @@ export class SyncService {
     }
 
     const targetSource: SyncSource = event.source === 'wix' ? 'hubspot' : 'wix';
-    const email = sourceRecord.fields.email;
+    const email = asString(sourceRecord.fields.email);
     let matchedTargetId: string | undefined;
 
     if (email) {
@@ -221,7 +221,7 @@ export class SyncService {
   }
 
   private applyMappings(source: SyncSource, payload: CanonicalContact, mappings: MappingRow[]): CanonicalContact {
-    const transformed: CanonicalContact = {};
+    const transformed: Record<string, unknown> = {};
 
     for (const mapping of mappings) {
       if (!mapping.enabled) {
@@ -241,11 +241,11 @@ export class SyncService {
         continue;
       }
 
-      transformed[mapping.wixFieldKey as keyof CanonicalContact] =
+      transformed[mapping.wixFieldKey] =
         typeof rawValue === 'string' ? applyTransform(rawValue, mapping.transform) : rawValue;
     }
 
-    return transformed;
+    return transformed as CanonicalContact;
   }
 
   private buildDedupeKey(event: ContactEvent): string {
@@ -280,4 +280,8 @@ function applyTransform(value: string, transform: 'none' | 'trim' | 'lowercase')
   }
 
   return value;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }

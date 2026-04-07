@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret } from '../security/token-crypto.js';
 import type { HubSpotOAuthClient } from '../integrations/hubspot-oauth-client.js';
 import type { OAuthTokenSet } from '../types/models.js';
-import { InMemoryStore } from '../storage/in-memory-store.js';
+import type { RuntimeStore } from '../storage/store-contract.js';
 
 interface ServiceConfig {
   appBaseUrl: string;
@@ -13,7 +13,7 @@ interface ServiceConfig {
 
 export class HubSpotConnectionService {
   constructor(
-    private readonly store: InMemoryStore,
+    private readonly store: RuntimeStore,
     private readonly oauthClient: HubSpotOAuthClient,
     private readonly config: ServiceConfig
   ) {}

@@ -18,6 +18,7 @@ Tenant-authenticated API calls require:
 4. Inspect DLQ via admin endpoint.
 5. Replay DLQ jobs after root cause fix.
 6. Run targeted backfill if required via `POST /api/sync/backfill/start`.
+7. Verify backend mode flags (`STORE_BACKEND`, `QUEUE_BACKEND`) match deployment intent.
 
 ## Security checks
 - Ensure logs have no raw tokens.

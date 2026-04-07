@@ -5,7 +5,7 @@ import type {
   MappingRow,
   MappingRowInput
 } from '../types/mappings.js';
-import { InMemoryStore } from '../storage/in-memory-store.js';
+import type { RuntimeStore } from '../storage/store-contract.js';
 
 const wixCatalog: FieldCatalogItem[] = [
   { key: 'email', label: 'Email', type: 'string', required: true },
@@ -26,7 +26,7 @@ const hubspotCatalog: FieldCatalogItem[] = [
 ];
 
 export class MappingService {
-  constructor(private readonly store: InMemoryStore) {}
+  constructor(private readonly store: RuntimeStore) {}
 
   getCatalog(): { wixFields: FieldCatalogItem[]; hubspotProperties: FieldCatalogItem[] } {
     return {

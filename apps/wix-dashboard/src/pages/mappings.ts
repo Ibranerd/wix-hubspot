@@ -1,4 +1,4 @@
-import type { MappingDirection } from '../../../../services/api/src/types/mappings.js';
+type MappingDirection = 'wix_to_hubspot' | 'hubspot_to_wix' | 'bidirectional';
 
 export interface MappingTableRow {
   wixFieldKey: string;

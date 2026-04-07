@@ -1,21 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-
-export type QueueJobStatus = 'queued' | 'processing' | 'dead';
-
-export interface QueueJob<TPayload> {
-  id: string;
-  type: string;
-  payload: TPayload;
-  attempts: number;
-  maxAttempts: number;
-  status: QueueJobStatus;
-  createdAt: string;
-  updatedAt: string;
-  nextRunAt?: string;
-  lastError?: string;
-}
+import type { QueueJob, RuntimeQueue } from './queue-contract.js';
 
 interface QueueState {
   jobs: QueueJob<unknown>[];
@@ -29,7 +15,7 @@ const INITIAL_QUEUE_STATE: QueueState = {
   jobs: []
 };
 
-export class FileJobQueue {
+export class FileJobQueue implements RuntimeQueue {
   private readonly queuePath: string;
 
   constructor(dataDir = process.env.DATA_DIR || '.data') {

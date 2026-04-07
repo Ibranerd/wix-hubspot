@@ -1,5 +1,4 @@
 import { createServer } from 'node:http';
-import { InMemoryStore } from './storage/in-memory-store.js';
 import { HubSpotConnectionService } from './services/hubspot-connection-service.js';
 import { readJson } from './http/json.js';
 import { MappingService } from './services/mapping-service.js';
@@ -8,10 +7,11 @@ import { readRawBody } from './http/raw.js';
 import { parseContactWebhookBody, parseFormWebhookBody } from './http/validators.js';
 import { verifySimpleSignature } from './security/signature.js';
 import type { ContactEvent, ContactRecord, SyncSource } from './types/sync.js';
-import type { WixFormEvent } from './types/forms.js';
 import { logError, logInfo } from './utils/logger.js';
 import { buildHubSpotOAuthClient } from './integrations/hubspot-oauth-client.js';
-import { FileJobQueue } from './services/job-queue.js';
+import { createRuntimeQueue, createRuntimeStore } from './services/runtime-factory.js';
+import type { RuntimeQueue } from './services/queue-contract.js';
+import { captureException, initObservability, observabilityState } from './observability/runtime.js';
 
 const port = Number(process.env.API_PORT || 8080);
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
@@ -25,8 +25,19 @@ const adminToken = process.env.ADMIN_API_TOKEN || 'local-admin-token';
 const dataDir = process.env.DATA_DIR || '.data';
 const useMockHubspotOAuth = process.env.HUBSPOT_USE_MOCK_OAUTH !== 'false';
 const wixDashboardAuthSecret = process.env.WIX_DASHBOARD_AUTH_SECRET || '';
+const storeBackend = (process.env.STORE_BACKEND || 'file') as 'file' | 'postgres';
+const queueBackend = (process.env.QUEUE_BACKEND || 'file') as 'file' | 'bullmq';
+const postgresUrl = process.env.POSTGRES_URL || '';
+const redisUrl = process.env.REDIS_URL || '';
+const sentryDsn = process.env.SENTRY_DSN || '';
+const otelExporterOtlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '';
 
-const store = new InMemoryStore(dataDir);
+const store = createRuntimeStore({
+  dataDir,
+  backend: storeBackend,
+  postgresUrl
+});
+
 const oauthClient = buildHubSpotOAuthClient(
   {
     clientId: hubspotClientId,
@@ -35,13 +46,26 @@ const oauthClient = buildHubSpotOAuthClient(
   },
   useMockHubspotOAuth
 );
+
 const mappingService = new MappingService(store);
-const queue = new FileJobQueue(dataDir);
+const queue = createRuntimeQueue({
+  dataDir,
+  backend: queueBackend,
+  redisUrl
+});
+
 const connectionService = new HubSpotConnectionService(store, oauthClient, {
   appBaseUrl,
   redirectUri,
   hubspotClientId,
   encryptionMasterKey
+});
+
+void initObservability({
+  serviceName: 'wix-hubspot-api',
+  sentryDsn,
+  otelExporterOtlpEndpoint,
+  environment: process.env.NODE_ENV || 'development'
 });
 
 const server = createServer(async (req, res) => {
@@ -312,7 +336,8 @@ const server = createServer(async (req, res) => {
       const queueMetrics = queue.getMetrics();
       json(res, 200, {
         ...storeMetrics,
-        ...queueMetrics
+        ...queueMetrics,
+        observability: observabilityState()
       });
       return;
     }
@@ -348,6 +373,7 @@ const server = createServer(async (req, res) => {
     res.statusCode = 404;
     res.end('Not found');
   } catch (error) {
+    captureException(error);
     logError('api_request_failed', {
       path: req.url,
       method: req.method,
@@ -361,7 +387,14 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  logInfo('api_started', { port, dataDir, useMockHubspotOAuth });
+  logInfo('api_started', {
+    port,
+    dataDir,
+    useMockHubspotOAuth,
+    storeBackend,
+    queueBackend,
+    observability: observabilityState()
+  });
 });
 
 function json(res: import('node:http').ServerResponse, statusCode: number, payload: unknown): void {
@@ -370,7 +403,7 @@ function json(res: import('node:http').ServerResponse, statusCode: number, paylo
   res.end(JSON.stringify(payload));
 }
 
-function enqueueBackfillJob(queue: FileJobQueue, source: SyncSource, contact: ContactRecord): void {
+function enqueueBackfillJob(queue: RuntimeQueue, source: SyncSource, contact: ContactRecord): void {
   const canonicalPayload = {
     email: stringOrUndefined(contact.fields.email),
     firstName: stringOrUndefined(contact.fields.firstName),

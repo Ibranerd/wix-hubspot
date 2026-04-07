@@ -1,12 +1,17 @@
-import { InMemoryStore } from '../../api/src/storage/in-memory-store.js';
 import { SyncService } from '../../api/src/services/sync-service.js';
 import { FormCaptureService } from '../../api/src/services/form-capture-service.js';
-import { FileJobQueue, type QueueJob } from '../../api/src/services/job-queue.js';
+import type { QueueJob } from '../../api/src/services/queue-contract.js';
 import type { ContactEvent } from '../../api/src/types/sync.js';
 import type { WixFormEvent } from '../../api/src/types/forms.js';
 import { logError, logInfo } from '../../api/src/utils/logger.js';
 import { buildHubSpotOAuthClient } from '../../api/src/integrations/hubspot-oauth-client.js';
 import { HubSpotConnectionService } from '../../api/src/services/hubspot-connection-service.js';
+import { createRuntimeQueue, createRuntimeStore } from '../../api/src/services/runtime-factory.js';
+import {
+  captureException,
+  initObservability,
+  observabilityState
+} from '../../api/src/observability/runtime.js';
 
 const pollMs = Number(process.env.WORKER_POLL_MS || 2000);
 const batchSize = Number(process.env.WORKER_BATCH_SIZE || 20);
@@ -18,12 +23,26 @@ const hubspotClientSecret = process.env.HUBSPOT_CLIENT_SECRET || 'local-dev-clie
 const encryptionMasterKey = process.env.ENCRYPTION_MASTER_KEY || 'local-dev-master-key';
 const useMockHubspotOAuth = process.env.HUBSPOT_USE_MOCK_OAUTH !== 'false';
 const retryBackoffMs = [2000, 10000, 30000, 120000, 600000];
+const storeBackend = (process.env.STORE_BACKEND || 'file') as 'file' | 'postgres';
+const queueBackend = (process.env.QUEUE_BACKEND || 'file') as 'file' | 'bullmq';
+const postgresUrl = process.env.POSTGRES_URL || '';
+const redisUrl = process.env.REDIS_URL || '';
 const retentionAuditDays = Number(process.env.RETENTION_AUDIT_DAYS || 90);
 const retentionFormDays = Number(process.env.RETENTION_FORM_DAYS || 90);
 const maintenanceIntervalMs = Number(process.env.WORKER_MAINTENANCE_MS || 60_000);
+const sentryDsn = process.env.SENTRY_DSN || '';
+const otelExporterOtlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '';
 
-const store = new InMemoryStore(dataDir);
-const queue = new FileJobQueue(dataDir);
+const store = createRuntimeStore({
+  dataDir,
+  backend: storeBackend,
+  postgresUrl
+});
+const queue = createRuntimeQueue({
+  dataDir,
+  backend: queueBackend,
+  redisUrl
+});
 const syncService = new SyncService(store);
 const formCaptureService = new FormCaptureService(store);
 const oauthClient = buildHubSpotOAuthClient(
@@ -39,6 +58,13 @@ const connectionService = new HubSpotConnectionService(store, oauthClient, {
   redirectUri,
   hubspotClientId,
   encryptionMasterKey
+});
+
+void initObservability({
+  serviceName: 'wix-hubspot-worker',
+  sentryDsn,
+  otelExporterOtlpEndpoint,
+  environment: process.env.NODE_ENV || 'development'
 });
 
 let working = false;
@@ -63,6 +89,7 @@ async function processQueueTick(): Promise<void> {
         queue.complete(job.id);
         logInfo('worker_job_completed', { jobId: job.id, type: job.type });
       } catch (error) {
+        captureException(error);
         const message = error instanceof Error ? error.message : 'unknown_error';
         const failed = queue.fail(job.id, message, retryBackoffMs);
 
@@ -141,8 +168,11 @@ logInfo('worker_started', {
   pollMs,
   batchSize,
   dataDir,
+  storeBackend,
+  queueBackend,
   useMockHubspotOAuth,
   retentionAuditDays,
   retentionFormDays,
-  maintenanceIntervalMs
+  maintenanceIntervalMs,
+  observability: observabilityState()
 });
