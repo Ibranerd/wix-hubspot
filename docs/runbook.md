@@ -7,6 +7,10 @@
 - Form ingestion logs: `GET /api/forms/events?tenantId=...`
 - Metrics: `GET /api/metrics`
 
+Tenant-authenticated API calls require:
+- `x-tenant-id` header matching query/body tenant id.
+- `x-wix-auth` header when `WIX_DASHBOARD_AUTH_SECRET` is enabled.
+
 ## Incident triage
 1. Confirm webhook signature settings are correct.
 2. Confirm worker process is running and polling queue.

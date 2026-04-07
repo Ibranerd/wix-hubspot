@@ -6,6 +6,7 @@ Implemented:
 - Dead-letter capture when retries are exhausted.
 - Internal replay endpoint for DLQ jobs.
 - Metrics endpoint for queue/audit/form counters.
+- Periodic retention cleanup for dedupe, audit logs, and form events.
 - Structured logging with automatic PII/token redaction.
 
 Endpoints:

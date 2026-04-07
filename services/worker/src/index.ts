@@ -18,6 +18,9 @@ const hubspotClientSecret = process.env.HUBSPOT_CLIENT_SECRET || 'local-dev-clie
 const encryptionMasterKey = process.env.ENCRYPTION_MASTER_KEY || 'local-dev-master-key';
 const useMockHubspotOAuth = process.env.HUBSPOT_USE_MOCK_OAUTH !== 'false';
 const retryBackoffMs = [2000, 10000, 30000, 120000, 600000];
+const retentionAuditDays = Number(process.env.RETENTION_AUDIT_DAYS || 90);
+const retentionFormDays = Number(process.env.RETENTION_FORM_DAYS || 90);
+const maintenanceIntervalMs = Number(process.env.WORKER_MAINTENANCE_MS || 60_000);
 
 const store = new InMemoryStore(dataDir);
 const queue = new FileJobQueue(dataDir);
@@ -123,4 +126,23 @@ setInterval(() => {
 
 void processQueueTick();
 
-logInfo('worker_started', { pollMs, batchSize, dataDir, useMockHubspotOAuth });
+setInterval(() => {
+  const result = store.cleanupRetention({
+    auditLogs: retentionAuditDays,
+    formEvents: retentionFormDays
+  });
+
+  if (result.removedExpiredDedupe > 0 || result.removedAuditLogs > 0 || result.removedFormEvents > 0) {
+    logInfo('worker_retention_cleanup', result);
+  }
+}, maintenanceIntervalMs);
+
+logInfo('worker_started', {
+  pollMs,
+  batchSize,
+  dataDir,
+  useMockHubspotOAuth,
+  retentionAuditDays,
+  retentionFormDays,
+  maintenanceIntervalMs
+});

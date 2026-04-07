@@ -9,6 +9,10 @@
 - `GET /api/mappings?tenantId=...` -> returns active mapping set for tenant.
 - `PUT /api/mappings` -> validates and activates new mapping set version.
 
+Dashboard/API tenant context requirements:
+- `x-tenant-id` header must be present and match `tenantId` in query/body.
+- Optional `x-wix-auth` shared secret enforcement when `WIX_DASHBOARD_AUTH_SECRET` is configured.
+
 ## Webhooks
 - `POST /webhooks/wix/contacts`
 - `POST /webhooks/hubspot/contacts`

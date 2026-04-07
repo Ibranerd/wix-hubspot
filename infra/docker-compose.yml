@@ -1,0 +1,62 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: wix_hubspot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wix_hubspot
+      POSTGRES_USER: wix_hubspot
+      POSTGRES_PASSWORD: wix_hubspot
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7
+    container_name: wix_hubspot_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+
+  api:
+    image: node:20
+    container_name: wix_hubspot_api
+    working_dir: /app
+    command: ["bash", "-lc", "npm install && npm run test"]
+    environment:
+      API_PORT: 8080
+      APP_BASE_URL: http://localhost:8080
+      DATA_DIR: /app/.data
+      HUBSPOT_USE_MOCK_OAUTH: 'true'
+      WIX_WEBHOOK_SECRET: dev-wix-secret
+      HUBSPOT_WEBHOOK_SECRET: dev-hubspot-secret
+      ADMIN_API_TOKEN: dev-admin-token
+    ports:
+      - '8080:8080'
+    volumes:
+      - ..:/app
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    image: node:20
+    container_name: wix_hubspot_worker
+    working_dir: /app
+    command: ["bash", "-lc", "npm install && npm run test"]
+    environment:
+      DATA_DIR: /app/.data
+      HUBSPOT_USE_MOCK_OAUTH: 'true'
+      WORKER_POLL_MS: 2000
+      WORKER_BATCH_SIZE: 20
+    volumes:
+      - ..:/app
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

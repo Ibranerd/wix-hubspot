@@ -5,6 +5,7 @@ import type { FieldMappingSet } from '../types/mappings.js';
 import type { ContactLink, ContactRecord, SyncAuditLog, SyncSource } from '../types/sync.js';
 import type { StoredFormEvent } from '../types/forms.js';
 import type { QueueJob } from '../services/job-queue.js';
+import type { RuntimeStore } from './store-contract.js';
 
 interface PersistedState {
   connections: Record<string, HubSpotConnection>;
@@ -36,7 +37,7 @@ const INITIAL_STATE: PersistedState = {
   queueRetries: []
 };
 
-export class InMemoryStore {
+export class InMemoryStore implements RuntimeStore {
   private readonly statePath: string;
 
   constructor(dataDir = process.env.DATA_DIR || '.data') {
@@ -245,6 +246,46 @@ export class InMemoryStore {
       retryCount: state.queueRetries.length,
       auditCount: state.auditLogs.length,
       formEventCount: state.formEvents.length
+    };
+  }
+
+  cleanupRetention(retentionDays: { auditLogs: number; formEvents: number }): {
+    removedExpiredDedupe: number;
+    removedAuditLogs: number;
+    removedFormEvents: number;
+  } {
+    let removedExpiredDedupe = 0;
+    let removedAuditLogs = 0;
+    let removedFormEvents = 0;
+
+    this.mutate((state) => {
+      const nowMs = Date.now();
+      const dedupeKeys = Object.keys(state.eventDedupe);
+      for (const key of dedupeKeys) {
+        const expiresAt = state.eventDedupe[key];
+        if (new Date(expiresAt).getTime() < nowMs) {
+          delete state.eventDedupe[key];
+          removedExpiredDedupe += 1;
+        }
+      }
+
+      const auditCutoffMs = nowMs - retentionDays.auditLogs * 24 * 60 * 60 * 1000;
+      const nextAudit = state.auditLogs.filter((log) => new Date(log.createdAt).getTime() >= auditCutoffMs);
+      removedAuditLogs = state.auditLogs.length - nextAudit.length;
+      state.auditLogs = nextAudit;
+
+      const formCutoffMs = nowMs - retentionDays.formEvents * 24 * 60 * 60 * 1000;
+      const nextForms = state.formEvents.filter(
+        (event) => new Date(event.processedAt).getTime() >= formCutoffMs
+      );
+      removedFormEvents = state.formEvents.length - nextForms.length;
+      state.formEvents = nextForms;
+    });
+
+    return {
+      removedExpiredDedupe,
+      removedAuditLogs,
+      removedFormEvents
     };
   }
 

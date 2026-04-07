@@ -5,6 +5,7 @@ import { readJson } from './http/json.js';
 import { MappingService } from './services/mapping-service.js';
 import type { MappingRowInput } from './types/mappings.js';
 import { readRawBody } from './http/raw.js';
+import { parseContactWebhookBody, parseFormWebhookBody } from './http/validators.js';
 import { verifySimpleSignature } from './security/signature.js';
 import type { ContactEvent, ContactRecord, SyncSource } from './types/sync.js';
 import type { WixFormEvent } from './types/forms.js';
@@ -23,6 +24,7 @@ const hubspotWebhookSecret = process.env.HUBSPOT_WEBHOOK_SECRET || 'local-hubspo
 const adminToken = process.env.ADMIN_API_TOKEN || 'local-admin-token';
 const dataDir = process.env.DATA_DIR || '.data';
 const useMockHubspotOAuth = process.env.HUBSPOT_USE_MOCK_OAUTH !== 'false';
+const wixDashboardAuthSecret = process.env.WIX_DASHBOARD_AUTH_SECRET || '';
 
 const store = new InMemoryStore(dataDir);
 const oauthClient = buildHubSpotOAuthClient(
@@ -52,9 +54,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/hubspot/connect/start') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const body = await readJson<{ tenantId: string }>(req);
       if (!body.tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, body.tenantId)) {
         return;
       }
 
@@ -72,9 +82,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/hubspot/disconnect') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const body = await readJson<{ tenantId: string }>(req);
       if (!body.tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, body.tenantId)) {
         return;
       }
 
@@ -85,9 +103,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/hubspot/status') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, tenantId)) {
         return;
       }
 
@@ -104,9 +130,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/mappings') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, tenantId)) {
         return;
       }
 
@@ -116,9 +150,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'PUT' && url.pathname === '/api/mappings') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const body = await readJson<{ tenantId: string; rows: MappingRowInput[] }>(req);
       if (!body.tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, body.tenantId)) {
         return;
       }
 
@@ -128,9 +170,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/sync/status') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, tenantId)) {
         return;
       }
 
@@ -140,9 +190,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/sync/logs') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, tenantId)) {
         return;
       }
 
@@ -154,9 +212,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/sync/backfill/start') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const body = await readJson<{ tenantId: string; source?: SyncSource; limit?: number }>(req);
       if (!body.tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, body.tenantId)) {
         return;
       }
 
@@ -178,9 +244,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/forms/events') {
+      const tenantHeader = requireTenantHeader(req, res, wixDashboardAuthSecret);
+      if (!tenantHeader) {
+        return;
+      }
+
       const tenantId = url.searchParams.get('tenantId') || '';
       if (!tenantId) {
         json(res, 400, { error: 'tenantId is required' });
+        return;
+      }
+      if (!enforceTenantMatch(res, tenantHeader, tenantId)) {
         return;
       }
 
@@ -199,7 +273,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const body = JSON.parse(raw) as Omit<ContactEvent, 'source'>;
+      const body = parseContactWebhookBody(raw);
       const job = queue.enqueue('wix_contact_upsert_to_hubspot', body);
       json(res, 202, { queued: true, jobId: job.id });
       return;
@@ -213,7 +287,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const body = JSON.parse(raw) as Omit<ContactEvent, 'source'>;
+      const body = parseContactWebhookBody(raw);
       const job = queue.enqueue('hubspot_contact_upsert_to_wix', body);
       json(res, 202, { queued: true, jobId: job.id });
       return;
@@ -227,7 +301,7 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const body = JSON.parse(raw) as WixFormEvent;
+      const body = parseFormWebhookBody(raw);
       const job = queue.enqueue('wix_form_submission_to_hubspot', body);
       json(res, 202, { queued: true, jobId: job.id });
       return;
@@ -321,6 +395,41 @@ function enqueueBackfillJob(queue: FileJobQueue, source: SyncSource, contact: Co
   }
 
   queue.enqueue('hubspot_contact_upsert_to_wix', payload);
+}
+
+function requireTenantHeader(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse,
+  dashboardSecret: string
+): string | null {
+  const tenantId = req.headers['x-tenant-id']?.toString();
+  if (!tenantId) {
+    json(res, 401, { error: 'missing_tenant_context' });
+    return null;
+  }
+
+  if (dashboardSecret) {
+    const authHeader = req.headers['x-wix-auth']?.toString();
+    if (authHeader !== dashboardSecret) {
+      json(res, 403, { error: 'invalid_dashboard_auth' });
+      return null;
+    }
+  }
+
+  return tenantId;
+}
+
+function enforceTenantMatch(
+  res: import('node:http').ServerResponse,
+  tenantHeader: string,
+  tenantInRequest: string
+): boolean {
+  if (tenantHeader !== tenantInRequest) {
+    json(res, 403, { error: 'tenant_scope_mismatch' });
+    return false;
+  }
+
+  return true;
 }
 
 function stringOrUndefined(value: unknown): string | undefined {
