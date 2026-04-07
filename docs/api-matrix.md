@@ -17,3 +17,6 @@
 ## Sync APIs
 - `GET /api/sync/status?tenantId=...` -> returns connection + mapping + audit counters.
 - `GET /api/sync/logs?tenantId=...&cursor=...` -> paginated sync audit logs.
+- `GET /api/metrics` -> operational counters.
+- `GET /api/admin/dlq` -> view dead-letter jobs (admin token required).
+- `POST /api/admin/dlq/replay` -> replay dead-letter jobs (admin token required).

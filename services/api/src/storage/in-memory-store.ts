@@ -2,6 +2,7 @@ import type { EncryptedTokenRecord, HubSpotConnection } from '../types/models.js
 import type { FieldMappingSet } from '../types/mappings.js';
 import type { ContactLink, ContactRecord, SyncAuditLog, SyncSource } from '../types/sync.js';
 import type { StoredFormEvent } from '../types/forms.js';
+import type { QueueJob } from '../services/job-queue.js';
 
 export class InMemoryStore {
   private readonly connections = new Map<string, HubSpotConnection>();
@@ -14,6 +15,8 @@ export class InMemoryStore {
   private readonly eventDedupe = new Map<string, string>();
   private readonly auditLogs: SyncAuditLog[] = [];
   private readonly formEvents: StoredFormEvent[] = [];
+  private readonly deadLetterJobs: QueueJob<unknown>[] = [];
+  private readonly queueRetries: QueueJob<unknown>[] = [];
 
   getConnection(tenantId: string): HubSpotConnection | undefined {
     return this.connections.get(tenantId);
@@ -135,6 +138,37 @@ export class InMemoryStore {
 
   addFormEvent(event: StoredFormEvent): void {
     this.formEvents.push(event);
+  }
+
+  addDeadLetterJob(job: QueueJob<unknown>): void {
+    this.deadLetterJobs.push(job);
+  }
+
+  addRetry(job: QueueJob<unknown>): void {
+    this.queueRetries.push(job);
+  }
+
+  getDeadLetterJobs(): QueueJob<unknown>[] {
+    return [...this.deadLetterJobs];
+  }
+
+  removeDeadLetterJob(jobId: string): QueueJob<unknown> | undefined {
+    const index = this.deadLetterJobs.findIndex((job) => job.id === jobId);
+    if (index < 0) {
+      return undefined;
+    }
+
+    const [job] = this.deadLetterJobs.splice(index, 1);
+    return job;
+  }
+
+  getMetrics(): { deadLetterCount: number; retryCount: number; auditCount: number; formEventCount: number } {
+    return {
+      deadLetterCount: this.deadLetterJobs.length,
+      retryCount: this.queueRetries.length,
+      auditCount: this.auditLogs.length,
+      formEventCount: this.formEvents.length
+    };
   }
 
   private contactKey(tenantId: string, contactId: string): string {
