@@ -1,10 +1,17 @@
 import type { EncryptedTokenRecord, HubSpotConnection } from '../types/models.js';
 import type { FieldMappingSet } from '../types/mappings.js';
+import type { ContactLink, ContactRecord, SyncAuditLog, SyncSource } from '../types/sync.js';
 
 export class InMemoryStore {
   private readonly connections = new Map<string, HubSpotConnection>();
   private readonly tokens = new Map<string, EncryptedTokenRecord>();
   private readonly mappingSets = new Map<string, FieldMappingSet[]>();
+  private readonly wixContacts = new Map<string, ContactRecord>();
+  private readonly hubspotContacts = new Map<string, ContactRecord>();
+  private readonly contactLinksByWix = new Map<string, ContactLink>();
+  private readonly contactLinksByHubspot = new Map<string, ContactLink>();
+  private readonly eventDedupe = new Map<string, string>();
+  private readonly auditLogs: SyncAuditLog[] = [];
 
   getConnection(tenantId: string): HubSpotConnection | undefined {
     return this.connections.get(tenantId);
@@ -35,5 +42,96 @@ export class InMemoryStore {
     const sets = this.mappingSets.get(nextSet.tenantId) || [];
     const previousInactive = sets.map((set) => ({ ...set, isActive: false }));
     this.mappingSets.set(nextSet.tenantId, [...previousInactive, nextSet]);
+  }
+
+  saveContact(source: SyncSource, contact: ContactRecord): void {
+    const key = this.contactKey(contact.tenantId, contact.id);
+    if (source === 'wix') {
+      this.wixContacts.set(key, contact);
+      return;
+    }
+
+    this.hubspotContacts.set(key, contact);
+  }
+
+  getContact(source: SyncSource, tenantId: string, contactId: string): ContactRecord | undefined {
+    const key = this.contactKey(tenantId, contactId);
+    return source === 'wix' ? this.wixContacts.get(key) : this.hubspotContacts.get(key);
+  }
+
+  findContactByEmail(source: SyncSource, tenantId: string, email: string): ContactRecord[] {
+    const map = source === 'wix' ? this.wixContacts : this.hubspotContacts;
+    const normalizedEmail = email.toLowerCase();
+    const records: ContactRecord[] = [];
+
+    for (const contact of map.values()) {
+      if (contact.tenantId !== tenantId) {
+        continue;
+      }
+
+      const candidate = contact.fields.email?.toLowerCase();
+      if (candidate === normalizedEmail) {
+        records.push(contact);
+      }
+    }
+
+    return records;
+  }
+
+  putContactLink(link: ContactLink): void {
+    const wixKey = this.contactKey(link.tenantId, link.wixContactId);
+    const hubspotKey = this.contactKey(link.tenantId, link.hubspotContactId);
+    this.contactLinksByWix.set(wixKey, link);
+    this.contactLinksByHubspot.set(hubspotKey, link);
+  }
+
+  getContactLinkBySource(source: SyncSource, tenantId: string, contactId: string): ContactLink | undefined {
+    const key = this.contactKey(tenantId, contactId);
+    return source === 'wix' ? this.contactLinksByWix.get(key) : this.contactLinksByHubspot.get(key);
+  }
+
+  addDedupeEvent(dedupeKey: string, expiresAt: string): void {
+    this.eventDedupe.set(dedupeKey, expiresAt);
+  }
+
+  hasDedupeEvent(dedupeKey: string): boolean {
+    const expiresAt = this.eventDedupe.get(dedupeKey);
+    if (!expiresAt) {
+      return false;
+    }
+
+    if (new Date(expiresAt).getTime() < Date.now()) {
+      this.eventDedupe.delete(dedupeKey);
+      return false;
+    }
+
+    return true;
+  }
+
+  addAuditLog(log: SyncAuditLog): void {
+    this.auditLogs.push(log);
+  }
+
+  getAuditLogs(tenantId: string, cursor?: number): { logs: SyncAuditLog[]; nextCursor: number | null } {
+    const filtered = this.auditLogs.filter((entry) => entry.tenantId === tenantId);
+    const start = cursor && cursor > 0 ? cursor : 0;
+    const page = filtered.slice(start, start + 50);
+    const nextCursor = start + page.length < filtered.length ? start + page.length : null;
+    return { logs: page, nextCursor };
+  }
+
+  getSyncStatus(tenantId: string): { connectionStatus: string; mappingVersion: number | null; auditCount: number } {
+    const connection = this.getConnection(tenantId);
+    const mapping = this.getActiveMappingSet(tenantId);
+    const auditCount = this.auditLogs.filter((entry) => entry.tenantId === tenantId).length;
+    return {
+      connectionStatus: connection?.status ?? 'disconnected',
+      mappingVersion: mapping?.version ?? null,
+      auditCount
+    };
+  }
+
+  private contactKey(tenantId: string, contactId: string): string {
+    return `${tenantId}:${contactId}`;
   }
 }

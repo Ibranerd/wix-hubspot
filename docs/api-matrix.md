@@ -13,3 +13,7 @@
 - `POST /webhooks/wix/contacts`
 - `POST /webhooks/wix/forms`
 - `POST /webhooks/hubspot/contacts`
+
+## Sync APIs
+- `GET /api/sync/status?tenantId=...` -> returns connection + mapping + audit counters.
+- `GET /api/sync/logs?tenantId=...&cursor=...` -> paginated sync audit logs.
