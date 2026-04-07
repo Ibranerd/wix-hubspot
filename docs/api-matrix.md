@@ -11,8 +11,8 @@
 
 ## Planned Webhooks (next phases)
 - `POST /webhooks/wix/contacts`
-- `POST /webhooks/wix/forms`
 - `POST /webhooks/hubspot/contacts`
+- `POST /webhooks/wix/forms`
 
 ## Sync APIs
 - `GET /api/sync/status?tenantId=...` -> returns connection + mapping + audit counters.

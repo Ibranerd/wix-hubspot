@@ -1,6 +1,7 @@
 import type { EncryptedTokenRecord, HubSpotConnection } from '../types/models.js';
 import type { FieldMappingSet } from '../types/mappings.js';
 import type { ContactLink, ContactRecord, SyncAuditLog, SyncSource } from '../types/sync.js';
+import type { StoredFormEvent } from '../types/forms.js';
 
 export class InMemoryStore {
   private readonly connections = new Map<string, HubSpotConnection>();
@@ -12,6 +13,7 @@ export class InMemoryStore {
   private readonly contactLinksByHubspot = new Map<string, ContactLink>();
   private readonly eventDedupe = new Map<string, string>();
   private readonly auditLogs: SyncAuditLog[] = [];
+  private readonly formEvents: StoredFormEvent[] = [];
 
   getConnection(tenantId: string): HubSpotConnection | undefined {
     return this.connections.get(tenantId);
@@ -129,6 +131,10 @@ export class InMemoryStore {
       mappingVersion: mapping?.version ?? null,
       auditCount
     };
+  }
+
+  addFormEvent(event: StoredFormEvent): void {
+    this.formEvents.push(event);
   }
 
   private contactKey(tenantId: string, contactId: string): string {

@@ -10,6 +10,8 @@ import { verifySimpleSignature } from './security/signature.js';
 import { SyncService } from './services/sync-service.js';
 import { InMemoryJobQueue } from './services/job-queue.js';
 import type { ContactEvent } from './types/sync.js';
+import { FormCaptureService } from './services/form-capture-service.js';
+import type { WixFormEvent } from './types/forms.js';
 
 const port = Number(process.env.API_PORT || 8080);
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
@@ -23,6 +25,7 @@ const store = new InMemoryStore();
 const oauthClient = new MockHubSpotOAuthClient();
 const mappingService = new MappingService(store);
 const syncService = new SyncService(store);
+const formCaptureService = new FormCaptureService(store);
 const queue = new InMemoryJobQueue();
 const connectionService = new HubSpotConnectionService(store, oauthClient, {
   appBaseUrl,
@@ -199,6 +202,26 @@ const server = createServer(async (req, res) => {
       const body = JSON.parse(raw) as Omit<ContactEvent, 'source'>;
       const job = queue.enqueue('hubspot_contact_upsert_to_wix', body, async () => {
         syncService.processContactEvent({ ...body, source: 'hubspot' });
+      });
+
+      res.statusCode = 202;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ queued: true, jobId: job.id }));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/webhooks/wix/forms') {
+      const raw = await readRawBody(req);
+      const signature = req.headers['x-signature']?.toString();
+      if (!verifySimpleSignature(raw, signature, wixWebhookSecret)) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ error: 'invalid_signature' }));
+        return;
+      }
+
+      const body = JSON.parse(raw) as WixFormEvent;
+      const job = queue.enqueue('wix_form_submission_to_hubspot', body, async () => {
+        formCaptureService.process(body);
       });
 
       res.statusCode = 202;
